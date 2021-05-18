@@ -2,6 +2,8 @@
 
 (require net/url)
 (require json)
+(require xml/path)
+(require xml)
 
 (define tg-api-token (getenv "TG_API_TOKEN"))
 (define tg-base-url 
@@ -9,9 +11,16 @@
 (define tg-limit 1)
 (define tg-timeout 60)
 
+(define cbr-url "http://www.cbr.ru/scripts/XML_daily.asp")
+
 
 (define (port->jsexpr port)
   (string->jsexpr (port->string port)))
+
+
+(define (port->xexpr port)
+  (xml->xexpr (document-element
+                (read-xml port))))
 
 
 (define (get-updates #:last-update-id (last-update-id null))
@@ -24,8 +33,32 @@
       (string->url url)))))
 
 
+(define (get-currencies-xml)
+  (port->xexpr
+    (get-pure-port (string->url cbr-url))))
+
+
+(define (make-currency-item code nominal name value)
+  (hasheq 'code code 'nominal nominal 'name name 'value value))
+
+
+(define (parse-xml-to-hashlist doc)
+  (let ([codes (se-path*/list '(CharCode) doc)]
+        [nominals (se-path*/list '(Nominal) doc)]
+        [names (se-path*/list '(Name) doc)]
+        [values (se-path*/list '(Value) doc)])
+    (map make-currency-item codes nominals names values)))
+
+
+(define (matched-currency? curr text)
+  (string-ci=? (hash-ref curr 'name) text))
+
+
 (define (create-message text)
-  text)
+  (let* ([doc (get-currencies-xml)]
+         [currencies-hashlist (parse-xml-to-hashlist doc)]
+         [target-currency (filter matched-currency? currencies-hashlist)])
+    target-currency))
 
 
 (define (listen #:last-update-id (last-update-id null))
