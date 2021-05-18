@@ -39,7 +39,11 @@
 
 
 (define (make-currency-item code nominal name value)
-  (hasheq 'code code 'nominal nominal 'name name 'value value))
+  (hasheq
+    'code code
+    'nominal (string->number nominal)
+    'name name
+    'value (string->number (string-replace value "," "."))))
 
 
 (define (parse-xml-to-hashlist doc)
@@ -50,15 +54,33 @@
     (map make-currency-item codes nominals names values)))
 
 
-(define (matched-currency? curr text)
-  (string-ci=? (hash-ref curr 'name) text))
+(define (matched-currency? text currency)
+  (string-ci=? (hash-ref currency 'name) text))
+
+
+(define (help-message currencies-hashlist)
+  (foldl
+    (lambda (item acc)
+      (format "~a~n~a" acc (format "~a/~a" (hash-ref item 'name) (hash-ref item 'code))))
+    ""
+    currencies-hashlist))
+
+
+(define (target-currency-message target-currency-list)
+  (let ([currency-item (first target-currency-list)])
+    (format "```Currency:~a~nCode:~a~nValue:~a~n```"
+      (hash-ref currency-item 'name)
+      (hash-ref currency-item 'code)
+      (/ (hash-ref currency-item 'value) (hash-ref currency-item 'nominal)))))
 
 
 (define (create-message text)
   (let* ([doc (get-currencies-xml)]
          [currencies-hashlist (parse-xml-to-hashlist doc)]
-         [target-currency (filter matched-currency? currencies-hashlist)])
-    target-currency))
+         [target-currency-list (filter (curry matched-currency? text) currencies-hashlist)])
+    (if (null? target-currency-list)
+      (help-message currencies-hashlist)
+      (target-currency-message target-currency-list))))
 
 
 (define (listen #:last-update-id (last-update-id null))
