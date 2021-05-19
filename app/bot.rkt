@@ -19,8 +19,12 @@
 
 
 (define (port->xexpr port)
-  (xml->xexpr (document-element
-                (read-xml port))))
+  (let*-values ([(converter) (bytes-open-converter "windows-1251" "UTF-8")]
+                [(converted-bytes x y) (bytes-convert converter (port->bytes port))])
+    (xml->xexpr (document-element
+                (read-xml (open-input-string
+                  (bytes->string/utf-8
+                    converted-bytes)))))))
 
 
 (define (get-updates #:last-update-id (last-update-id null))
@@ -55,20 +59,22 @@
 
 
 (define (matched-currency? text currency)
-  (string-ci=? (hash-ref currency 'name) text))
+  (string-ci=? (hash-ref currency 'code) text))
 
 
 (define (help-message currencies-hashlist)
   (foldl
     (lambda (item acc)
-      (format "~a~n~a" acc (format "~a/~a" (hash-ref item 'name) (hash-ref item 'code))))
+      (format "~a~n~a"
+        acc
+        (format "`~a/~a`" (hash-ref item 'name) (hash-ref item 'code))))
     ""
     currencies-hashlist))
 
 
 (define (target-currency-message target-currency-list)
   (let ([currency-item (first target-currency-list)])
-    (format "```Currency:~a~nCode:~a~nValue:~a~n```"
+    (format "```~nCurrency: ~a~nCode: ~a~nValue: ~a~n```"
       (hash-ref currency-item 'name)
       (hash-ref currency-item 'code)
       (/ (hash-ref currency-item 'value) (hash-ref currency-item 'nominal)))))
@@ -83,9 +89,15 @@
       (target-currency-message target-currency-list))))
 
 
+(define (send-message chat-id text)
+  (port->jsexpr (post-pure-port 
+    (string->url (format "~a/sendMessage" tg-base-url))
+    (jsexpr->bytes (hasheq 'chat_id chat-id 'text text 'parse_mode "MarkdownV2"))
+    (list "Content-type: application/json"))))
+
+
 (define (listen #:last-update-id (last-update-id null))
   (let ([tg-updates (get-updates #:last-update-id last-update-id)])
-    (displayln tg-updates)
     (if (and (hash-ref tg-updates 'ok) (not (null? (hash-ref tg-updates 'result))))
       (let* ([result (first (hash-ref tg-updates 'result))]
              [update-id (hash-ref result 'update_id)]
@@ -95,7 +107,7 @@
              [text (hash-ref message 'text)]
              [chat-id (hash-ref (hash-ref message 'chat) 'id)]
              [message-text (create-message text)])
-        (displayln message-text)
+        (send-message chat-id message-text)
         (listen #:last-update-id update-id))
       (if (hash-ref tg-updates 'ok)
         (listen)
