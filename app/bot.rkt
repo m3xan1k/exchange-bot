@@ -5,6 +5,9 @@
 (require xml/path)
 (require xml)
 
+
+; constants
+
 (define tg-api-token (getenv "TG_API_TOKEN"))
 (define tg-base-url 
   (format "https://api.telegram.org/bot~a" tg-api-token))
@@ -14,11 +17,15 @@
 (define cbr-url "http://www.cbr.ru/scripts/XML_daily.asp")
 
 
+; functions
+
 (define (port->jsexpr port)
+  ; converts port to hash
   (string->jsexpr (port->string port)))
 
 
 (define (port->xexpr port)
+  ; converts port to xml-expression with converted encoding to utf-8
   (let*-values ([(converter) (bytes-open-converter "windows-1251" "UTF-8")]
                 [(converted-bytes x y) (bytes-convert converter (port->bytes port))])
     (xml->xexpr (document-element
@@ -28,6 +35,7 @@
 
 
 (define (get-updates #:last-update-id (last-update-id null))
+  ; request for telegram updates with limit and offset if given
   (let ([url (if (null? last-update-id)
                 (format "~a/getUpdates?limit=~a&timeout=~a"
                   tg-base-url tg-limit tg-timeout)
@@ -38,11 +46,13 @@
 
 
 (define (get-currencies-xml)
+  ; request for currencies xml
   (port->xexpr
     (get-pure-port (string->url cbr-url))))
 
 
 (define (make-currency-item code nominal name value)
+  ; making hash with currency attributes
   (hasheq
     'code code
     'nominal (string->number nominal)
@@ -51,6 +61,7 @@
 
 
 (define (parse-xml-to-hashlist doc)
+  ; parse currencies attributes from xml and map them to list of hashes
   (let ([codes (se-path*/list '(CharCode) doc)]
         [nominals (se-path*/list '(Nominal) doc)]
         [names (se-path*/list '(Name) doc)]
@@ -59,10 +70,12 @@
 
 
 (define (matched-currency? text currency)
+  ; if message text matches with currency code
   (string-ci=? (hash-ref currency 'code) text))
 
 
 (define (help-message currencies-hashlist)
+  ; create help message with currency codes
   (foldl
     (lambda (item acc)
       (format "~a~n~a"
@@ -73,6 +86,7 @@
 
 
 (define (target-currency-message target-currency-list)
+  ; convert matched currency hash to text message
   (let ([currency-item (first target-currency-list)])
     (format "```~nCurrency: ~a~nCode: ~a~nValue: ~a~n```"
       (hash-ref currency-item 'name)
@@ -81,6 +95,7 @@
 
 
 (define (create-message text)
+  ; dispatch between help and target message
   (let* ([doc (get-currencies-xml)]
          [currencies-hashlist (parse-xml-to-hashlist doc)]
          [target-currency-list (filter (curry matched-currency? text) currencies-hashlist)])
@@ -90,6 +105,7 @@
 
 
 (define (send-message chat-id text)
+  ; send telegram message template
   (port->jsexpr (post-pure-port 
     (string->url (format "~a/sendMessage" tg-base-url))
     (jsexpr->bytes (hasheq 'chat_id chat-id 'text text 'parse_mode "MarkdownV2"))
@@ -97,6 +113,7 @@
 
 
 (define (listen #:last-update-id (last-update-id null))
+  ; main loop
   (let ([tg-updates (get-updates #:last-update-id last-update-id)])
     (if (and (hash-ref tg-updates 'ok) (not (null? (hash-ref tg-updates 'result))))
       (let* ([result (first (hash-ref tg-updates 'result))]
